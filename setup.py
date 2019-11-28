@@ -15,7 +15,7 @@
 from setuptools import setup
 
 # Figure out if the system already has a supported Crypto library
-rsa_signer_library = 'M2Crypto>=0.21.1,<=0.26.4'
+rsa_signer_library = 'cryptography'
 try:
   import rsa
 
@@ -34,7 +34,7 @@ except ImportError:
 setup(
     name = 'adb',
     packages = ['adb'],
-    version = '1.2.0',
+    version = '1.3.0',
     author = 'Fahrzin Hemmati',
     author_email = 'fahhem@gmail.com',
     maintainer = 'Fahrzin Hemmati',

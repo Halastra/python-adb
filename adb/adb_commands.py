@@ -40,9 +40,9 @@ DeviceIsAvailable = common.InterfaceMatcher(CLASS, SUBCLASS, PROTOCOL)
 
 try:
     # Imported locally to keep compatibility with previous code.
-    from adb.sign_m2crypto import M2CryptoSigner
+    from adb.sign_cryptography import CryptographySigner
 except ImportError:
-    # Ignore this error when M2Crypto is not installed, there are other options.
+    # Ignore this error when cryptography is not installed, there are other options.
     pass
 
 
@@ -127,12 +127,17 @@ class AdbCommands(object):
         # If there isnt a handle override (used by tests), build one here
         if 'handle' in kwargs:
             self._handle = kwargs.pop('handle')
-        elif serial and b':' in serial:
-            self._handle = common.TcpHandle(serial, timeout_ms=default_timeout_ms)
         else:
-            self._handle = common.UsbHandle.FindAndOpen(
-                DeviceIsAvailable, port_path=port_path, serial=serial,
-                timeout_ms=default_timeout_ms)
+            # if necessary, convert serial to a unicode string
+            if isinstance(serial, (bytes, bytearray)):
+                serial = serial.decode('utf-8')
+
+            if serial and ':' in serial:
+                self._handle = common.TcpHandle(serial, timeout_ms=default_timeout_ms)
+            else:
+                self._handle = common.UsbHandle.FindAndOpen(
+                    DeviceIsAvailable, port_path=port_path, serial=serial,
+                    timeout_ms=default_timeout_ms)
 
         self._Connect(**kwargs)
 
@@ -242,7 +247,7 @@ class AdbCommands(object):
 
         return self.Shell(' '.join(cmd), timeout_ms=timeout_ms)
 
-    def Push(self, source_file, device_filename, mtime='0', timeout_ms=None, progress_callback=None):
+    def Push(self, source_file, device_filename, mtime='0', timeout_ms=None, progress_callback=None, st_mode=None):
         """Push a file or directory to the device.
 
         Args:
@@ -251,6 +256,7 @@ class AdbCommands(object):
           device_filename: Destination on the device to write to.
           mtime: Optional, modification time to set on the file.
           timeout_ms: Expected timeout for any part of the push.
+          st_mode: stat mode for filename
           progress_callback: callback method that accepts filename, bytes_written and total_bytes,
                              total_bytes will be -1 for file-like objects
         """
@@ -267,8 +273,11 @@ class AdbCommands(object):
         with source_file:
             connection = self.protocol_handler.Open(
                 self._handle, destination=b'sync:', timeout_ms=timeout_ms)
+            kwargs={}
+            if st_mode is not None:
+                kwargs['st_mode'] = st_mode
             self.filesync_handler.Push(connection, source_file, device_filename,
-                                       mtime=int(mtime), progress_callback=progress_callback)
+                                       mtime=int(mtime), progress_callback=progress_callback, **kwargs)
         connection.Close()
 
     def Pull(self, device_filename, dest_file=None, timeout_ms=None, progress_callback=None):
@@ -287,7 +296,9 @@ class AdbCommands(object):
         if not dest_file:
             dest_file = io.BytesIO()
         elif isinstance(dest_file, str):
-            dest_file = open(dest_file, 'w')
+            dest_file = open(dest_file, 'wb')
+        elif isinstance(dest_file, file):
+            pass
         else:
             raise ValueError("destfile is of unknown type")
 
@@ -301,7 +312,10 @@ class AdbCommands(object):
             return dest_file.getvalue()
         else:
             dest_file.close()
-            return os.path.exists(dest_file)
+            if hasattr(dest_file, 'name'):
+                return os.path.exists(dest_file.name)
+            # We don't know what the path is, so we just assume it exists.
+            return True
 
     def Stat(self, device_filename):
         """Get a file's stat() information."""
